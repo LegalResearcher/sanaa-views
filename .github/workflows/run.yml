@@ -1,8 +1,6 @@
 name: Sanaa Views
 
 on:
-  schedule:
-    - cron: "5,30,55 * * * *"
   workflow_dispatch:
 
 permissions:
