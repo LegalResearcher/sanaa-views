@@ -1,19 +1,20 @@
 # Sanaa Views
 
 يسحب منشورات قناة `@SanaaPressAgency` ويرسل طلب مشاهدات لرابط واحد من الطابور في كل تشغيل.
-التشغيل كل 25 دقيقة عبر GitHub Actions.
+التشغيل كل 25 دقيقة عبر Supabase `pg_cron`، الذي يرسل `workflow_dispatch` إلى GitHub Actions.
 
 ## الإعداد
-1. أضف المفتاح: Settings > Secrets and variables > Actions > New repository secret
-   - الاسم: `API_KEY`
-   - القيمة: مفتاح الـ API
-2. تشغيل يدوي: تبويب Actions > Sanaa Views > Run workflow.
+1. أضف بيانات الدخول: Settings > Secrets and variables > Actions > New repository secret
+   - الاسم: `SITE_USERNAME` — اسم مستخدم الموقع
+   - الاسم: `SITE_PASSWORD` — كلمة مرور الموقع
+2. في Supabase Vault أضف سر GitHub باسم `github_actions_token`، ويجب أن يملك صلاحية تشغيل Actions للمستودع.
+3. تشغيل يدوي: تبويب Actions > Sanaa Views > Run workflow.
 
 ## كيف يعمل
 - أول تشغيل: يأخذ أحدث منشور فقط.
 - بعدها: كل منشور جديد يدخل الطابور بالترتيب، ويُنفَّذ الأقدم أولاً.
 - الرابط الذي يفشل 3 مرات يُتخطى.
-- خطأ في المفتاح أو الرصيد يوقف التشغيل ويظهر فاشلاً في Actions.
+- يتم تسجيل الدخول إلى الموقع وإرسال الطلب من خلال نموذج المتصفح، مع النقر البرمجي على زر التأكيد لتجاوز العناصر العائمة.
 
 ## تصفير الحالة
 احذف الملفات داخل مجلد `state/` (ما عدا `.gitkeep`) لبدء من الصفر.
