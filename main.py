@@ -5,6 +5,14 @@ import sys
 import time
 
 import requests
+from processing_state import (
+    MAX_FAILURES_PER_LINK,
+    MAX_SUCCESSES_PER_LINK,
+    can_process,
+    load_failures,
+    load_successes,
+    record_result,
+)
 
 # ══════════════ الإعدادات ══════════════
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -14,15 +22,14 @@ os.makedirs(STATE_DIR, exist_ok=True)
 LINKS_PATH = os.path.join(STATE_DIR, "telegram_links.txt")        # طابور التنفيذ
 PROCESSED_PATH = os.path.join(STATE_DIR, "processed_links.txt")   # روابط تم سحبها
 DONE_PATH = os.path.join(STATE_DIR, "done_links.txt")             # روابط تم تنفيذها
-ATTEMPTS_PATH = os.path.join(STATE_DIR, "failed_attempts.json")   # عدّاد الفشل لكل رابط
 
 TARGET_CHANNEL = "SanaaPressAgency"
 
 SERVICE_ID = "9336"
 QUANTITY = "100"
 
-MAX_ATTEMPTS_PER_LINK = 3   # بعد 3 إخفاقات يُتخطى الرابط نهائياً
-MAX_TRIES_PER_RUN = 3       # أقصى عدد طلبات في التشغيل الواحد
+MAX_ATTEMPTS_PER_LINK = MAX_FAILURES_PER_LINK  # بعد 3 إخفاقات يُتخطى الرابط نهائياً
+MAX_TRIES_PER_RUN = 5       # أقصى عدد طلبات في التشغيل الواحد
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 "
@@ -49,18 +56,12 @@ def append_lines(path, lines):
 
 
 def load_attempts():
-    if not os.path.exists(ATTEMPTS_PATH):
-        return {}
-    try:
-        with open(ATTEMPTS_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (ValueError, OSError):
-        return {}
+    return load_failures(STATE_DIR)
 
 
 def save_attempts(data):
-    with open(ATTEMPTS_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    from processing_state import save_failures
+    save_failures(STATE_DIR, data)
 
 
 # ══════════════ السحب ══════════════
@@ -103,48 +104,50 @@ def pull_once():
     log(f"✨ أُضيف {len(new_links)} رابط جديد إلى الطابور.")
 
 
-def pending_links(attempts):
-    done = set(read_lines(DONE_PATH))
+def pending_links(attempts, successes=None, state_dir=STATE_DIR):
+    successes = load_successes(state_dir) if successes is None else successes
     result = []
-    for link in read_lines(LINKS_PATH):
-        if link in done:
-            continue
-        if attempts.get(link, 0) >= MAX_ATTEMPTS_PER_LINK:
+    for link in read_lines(os.path.join(state_dir, "telegram_links.txt")):
+        if not can_process(link, state_dir, successes, attempts):
             continue
         if link not in result:
             result.append(link)
     return result
 
 
-def run_browser_send(sender):
-    attempts = load_attempts()
-    queue = pending_links(attempts)
+def run_browser_send(sender, state_dir=STATE_DIR):
+    attempts = load_failures(state_dir)
+    successes = load_successes(state_dir)
+    queue = pending_links(attempts, successes, state_dir)
     if not queue:
         log("💤 الطابور فارغ، لا شيء للتنفيذ.")
         return 0
 
-    log(f"📋 في الطابور: {len(queue)} رابط.")
+    log(f"📋 روابط مؤهلة: {len(queue)} رابط؛ حد التشغيل {MAX_TRIES_PER_RUN} طلبات.")
     tries = 0
     for link in queue:
         if tries >= MAX_TRIES_PER_RUN:
             break
         tries += 1
-        log(f"معالجة: {link}")
+        log(f"معالجة ({successes.get(link, 0)}/{MAX_SUCCESSES_PER_LINK} نجاح): {link}")
         status = sender(link)
 
         if status == "ok":
-            append_lines(DONE_PATH, [link])
-            return 0  # رابط ناجح واحد لكل تشغيل
+            _, result = record_result(link, status, state_dir, successes, attempts)
+            if result == "success":
+                log(f"✅ نجاح الرابط: {successes[link]}/{MAX_SUCCESSES_PER_LINK}.")
+            if successes.get(link, 0) >= MAX_SUCCESSES_PER_LINK:
+                log("✅ اكتمل هذا الرابط بعد بلوغ خمسة نجاحات.")
+            continue
         if status == "fatal":
             log("⏹️ توقف: تحقق من بيانات الدخول أو الرصيد.")
             return 1
 
-        attempts[link] = attempts.get(link, 0) + 1
-        save_attempts(attempts)
+        record_result(link, status, state_dir, successes, attempts)
         if attempts[link] >= MAX_ATTEMPTS_PER_LINK:
             log(f"🚫 تم تخطي الرابط نهائياً بعد {MAX_ATTEMPTS_PER_LINK} محاولات فاشلة.")
 
-    log("⚠️ لم ينجح أي طلب في هذا التشغيل.")
+    log(f"انتهى التشغيل بعد {tries} طلبات؛ حد التشغيل {MAX_TRIES_PER_RUN}.")
     return 0
 
 
