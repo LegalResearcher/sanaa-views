@@ -3,7 +3,7 @@ import json
 import os
 import tempfile
 
-ACCOUNT_COUNT = 5
+ACCOUNT_COUNT = 9
 STATE_FILENAME = "account_rotation.json"
 
 
