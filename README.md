@@ -1,7 +1,7 @@
 # Sanaa Views
 
 يسحب منشورات قناة `@SanaaPressAgency` ويعالج روابطها مباشرة عبر workflow مستقل، دون المرور بطابور Other.
-جدولة Supabase المستقلة مفعّلة لاستدعاء `run-standalone.yml` بفاصل فعلي 35 دقيقة؛ يُفحص الاستحقاق كل دقيقة، لذا قد يتأخر الإرسال حتى دقيقة عن الموعد.
+جدولة Supabase المستقلة مفعّلة لاستدعاء `run-standalone.yml` بفاصل فعلي 45 دقيقة؛ يُفحص الاستحقاق كل دقيقة، لذا قد يتأخر الإرسال حتى دقيقة عن الموعد.
 
 ## الإعداد
 1. أضف بيانات الدخول: Settings > Secrets and variables > Actions > New repository secret
