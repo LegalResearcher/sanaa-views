@@ -11,7 +11,12 @@ from main import (
     run_browser_send,
 )
 import main
-from processing_state import is_automation_paused, load_account_history, pause_automation
+from processing_state import (
+    clear_processing_state_if_paused,
+    is_automation_paused,
+    load_account_history,
+    pause_automation,
+)
 from retry_link import process_manual_retry
 
 
@@ -130,6 +135,27 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(process_manual_retry(self.links[0], sender, self.state), 1)
         self.assertEqual(sender.calls, [self.links[0]])
         self.assertFalse(is_automation_paused(self.state))
+
+    def test_cleanup_requires_fatal_pause_and_preserves_pause_marker_and_gitkeep(self):
+        state_files = (
+            "account_rotation.json", "failed_attempts.json", "link_account_history.json",
+            "previous_batch.json", "processed_links.txt", "success_counts.json",
+            "telegram_links.txt",
+        )
+        for filename in state_files:
+            with open(os.path.join(self.state, filename), "w", encoding="utf-8") as file:
+                file.write("sentinel")
+        gitkeep = os.path.join(self.state, ".gitkeep")
+        open(gitkeep, "w", encoding="utf-8").close()
+
+        self.assertFalse(clear_processing_state_if_paused(self.state))
+        self.assertTrue(all(os.path.exists(os.path.join(self.state, name)) for name in state_files))
+
+        pause_automation(self.state, "fatal test")
+        self.assertTrue(clear_processing_state_if_paused(self.state))
+        self.assertTrue(is_automation_paused(self.state))
+        self.assertTrue(os.path.exists(gitkeep))
+        self.assertFalse(any(os.path.exists(os.path.join(self.state, name)) for name in state_files))
 
     def test_fatal_result_does_not_retry_link_on_same_account(self):
         sender = FakeSender(["fatal"])

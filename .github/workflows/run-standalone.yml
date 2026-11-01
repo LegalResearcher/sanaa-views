@@ -64,6 +64,9 @@ jobs:
             echo "Publishing workflows disabled after account/login/balance failure."
             exit 1
           fi
+      - name: Clear processing state after fatal pause
+        if: always()
+        run: python -c "from processing_state import clear_processing_state_if_paused; clear_processing_state_if_paused('state')"
       - name: Commit state
         if: always()
         run: |
