@@ -10,6 +10,7 @@ from main import (
     prepare_run_batch,
     run_browser_send,
 )
+import main
 from processing_state import is_automation_paused, load_account_history, pause_automation
 from retry_link import process_manual_retry
 
@@ -43,7 +44,7 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(batch, [self.links[2], self.links[0], self.links[1]])
         self.assertEqual(load_previous_batch(self.state), batch)
 
-    def test_legacy_queue_migration_only_keeps_first_nine_incomplete_links(self):
+    def test_legacy_queue_migration_keeps_all_incomplete_links(self):
         with open(os.path.join(self.state, "telegram_links.txt"), "w", encoding="utf-8") as file:
             file.write("\n".join(self.links) + "\n")
         with open(os.path.join(self.state, "success_counts.json"), "w", encoding="utf-8") as file:
@@ -86,12 +87,37 @@ class ProcessingTests(unittest.TestCase):
 
         self.assertEqual(sender.calls, [self.links[2]])
 
-    def test_run_is_limited_to_nine_requests_and_remaining_links_stay_in_batch(self):
+    def test_run_processes_more_than_old_limit(self):
         batch = [f"https://t.me/SanaaPressAgency/{number}" for number in range(1, 12)]
         sender = FakeSender()
         run_browser_send(sender, self.state, 1, batch)
-        self.assertEqual(sender.calls, batch[:9])
-        self.assertEqual(pending_links(batch, 1, self.state), batch[9:])
+        self.assertEqual(sender.calls, batch)
+        self.assertEqual(load_previous_batch(self.state), batch)
+
+    def test_completed_and_exhausted_links_are_removed_from_saved_batch(self):
+        with open(os.path.join(self.state, "done_links.txt"), "w", encoding="utf-8") as file:
+            file.write(self.links[0] + "\n")
+        with open(os.path.join(self.state, "failed_attempts.json"), "w", encoding="utf-8") as file:
+            json.dump({self.links[1]: 3}, file)
+        run_browser_send(FakeSender(), self.state, 1, self.links[:3])
+        self.assertEqual(load_previous_batch(self.state), [self.links[2]])
+
+    def test_main_skips_login_when_no_account_has_eligible_links(self):
+        with open(os.path.join(self.state, "done_links.txt"), "w", encoding="utf-8") as file:
+            file.write(self.links[0] + "\n")
+        with patch.object(main, "STATE_DIR", self.state), \
+             patch.object(main, "discover_new_links", return_value=[self.links[0]]), \
+             patch.object(main, "select_account", side_effect=AssertionError("login selection called")):
+            self.assertEqual(main.main(), 0)
+
+    def test_main_selects_next_account_with_eligible_link(self):
+        from account_rotation import select_account
+        with open(os.path.join(self.state, "link_account_history.json"), "w", encoding="utf-8") as file:
+            json.dump({self.links[0]: [1]}, file)
+        selected = select_account(self.state, {f"SITE_USERNAME_{n}": f"u{n}" for n in range(1, 10)} | {f"SITE_PASSWORD_{n}": f"p{n}" for n in range(1, 10)}, eligible=lambda n: n != 1)
+        self.assertEqual(selected[0], 2)
+        with open(os.path.join(self.state, "account_rotation.json"), encoding="utf-8") as file:
+            self.assertEqual(json.load(file), {"next_account": 3})
 
     def test_manual_retry_is_blocked_while_automation_is_paused(self):
         pause_automation(self.state, "test pause")

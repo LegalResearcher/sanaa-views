@@ -40,14 +40,22 @@ def _write_next_account(state_dir, next_account):
             os.unlink(temporary)
 
 
-def select_account(state_dir, environ=None):
+def select_account(state_dir, environ=None, eligible=None):
     """Return (account_number, username, password) and advance the shared pointer.
 
     The pointer advances only after the selected account has both required secrets.
     No secret is written to disk or included in the returned error messages.
     """
     environ = os.environ if environ is None else environ
-    account_number = _read_next_account(state_dir)
+    first_account = _read_next_account(state_dir)
+    account_number = next(
+        (candidate for offset in range(ACCOUNT_COUNT)
+         for candidate in [(first_account + offset - 1) % ACCOUNT_COUNT + 1]
+         if eligible is None or eligible(candidate)),
+        None,
+    )
+    if account_number is None:
+        return None
     username = environ.get(f"SITE_USERNAME_{account_number}", "").strip()
     password = environ.get(f"SITE_PASSWORD_{account_number}", "")
     if not username or not password:
