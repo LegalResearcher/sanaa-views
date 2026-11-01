@@ -1,67 +1,55 @@
-"""Shared persistent rotation for the scheduled and manual workflows."""
 import json
 import os
 import tempfile
 
-ACCOUNT_COUNT = 9
-STATE_FILENAME = "account_rotation.json"
+ACCOUNT_COUNT = 5
 
 
-def _state_path(state_dir):
-    return os.path.join(state_dir, STATE_FILENAME)
+def select_rotating_account(environ, state_dir):
+    """Select one configured account and persist the next account number.
 
+    Scheduled and manual workflows share this cursor through state/.
+    Credentials are returned to the caller and are never stored on disk.
+    """
+    accounts = []
+    missing = []
+    for number in range(1, ACCOUNT_COUNT + 1):
+        username = environ.get(f"SITE_USERNAME_{number}", "").strip()
+        password = environ.get(f"SITE_PASSWORD_{number}", "")
+        if not username:
+            missing.append(f"SITE_USERNAME_{number}")
+        if not password:
+            missing.append(f"SITE_PASSWORD_{number}")
+        accounts.append((username, password))
+    if missing:
+        raise ValueError("Missing required secrets: " + ", ".join(missing))
 
-def _read_next_account(state_dir):
-    try:
-        with open(_state_path(state_dir), "r", encoding="utf-8") as file:
-            value = json.load(file)
-        next_account = value.get("next_account") if isinstance(value, dict) else None
-        if isinstance(next_account, int) and not isinstance(next_account, bool):
-            if 1 <= next_account <= ACCOUNT_COUNT:
-                return next_account
-    except (OSError, ValueError, TypeError):
-        pass
-    return 1
-
-
-def _write_next_account(state_dir, next_account):
     os.makedirs(state_dir, exist_ok=True)
-    path = _state_path(state_dir)
-    fd, temporary = tempfile.mkstemp(prefix=".rotation-", dir=state_dir)
+    cursor_path = os.path.join(state_dir, "account_rotation.json")
+    next_account = 1
+    if os.path.exists(cursor_path):
+        with open(cursor_path, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        if not isinstance(data, dict):
+            raise ValueError("account_rotation.json must contain an object")
+        next_account = data.get("next_account", 1)
+        if (not isinstance(next_account, int) or isinstance(next_account, bool)
+                or not 1 <= next_account <= ACCOUNT_COUNT):
+            raise ValueError("Invalid next_account in account_rotation.json")
+
+    selected = next_account
+    following = selected % ACCOUNT_COUNT + 1
+    fd, temporary_path = tempfile.mkstemp(prefix=".account-rotation-", dir=state_dir)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as file:
-            json.dump({"next_account": next_account}, file, indent=2)
+            json.dump({"next_account": following}, file)
             file.write("\n")
             file.flush()
             os.fsync(file.fileno())
-        os.replace(temporary, path)
+        os.replace(temporary_path, cursor_path)
     finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
 
-
-def select_account(state_dir, environ=None, eligible=None):
-    """Return (account_number, username, password) and advance the shared pointer.
-
-    The pointer advances only after the selected account has both required secrets.
-    No secret is written to disk or included in the returned error messages.
-    """
-    environ = os.environ if environ is None else environ
-    first_account = _read_next_account(state_dir)
-    account_number = next(
-        (candidate for offset in range(ACCOUNT_COUNT)
-         for candidate in [(first_account + offset - 1) % ACCOUNT_COUNT + 1]
-         if eligible is None or eligible(candidate)),
-        None,
-    )
-    if account_number is None:
-        return None
-    username = environ.get(f"SITE_USERNAME_{account_number}", "").strip()
-    password = environ.get(f"SITE_PASSWORD_{account_number}", "")
-    if not username or not password:
-        raise RuntimeError(
-            f"بيانات دخول الحساب {account_number} ناقصة: "
-            f"SITE_USERNAME_{account_number} وSITE_PASSWORD_{account_number}"
-        )
-    _write_next_account(state_dir, account_number % ACCOUNT_COUNT + 1)
-    return account_number, username, password
+    username, password = accounts[selected - 1]
+    return selected, username, password
