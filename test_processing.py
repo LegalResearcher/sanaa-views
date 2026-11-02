@@ -61,8 +61,8 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(load_successes(self.state)[self.links[-1]], 1)
         second = FakeSender(["ok"] * 5)
         self.assertEqual(run_browser_send(second, self.state), 0)
-        self.assertEqual(len(second.calls), 5)
-        for _ in range(3):
+        self.assertEqual(second.calls, list(reversed(self.links[:2])))
+        for _ in range(4):
             run_browser_send(FakeSender(["ok"] * 5), self.state)
         self.assertEqual(load_successes(self.state)[self.links[-1]], 5)
         remaining = FakeSender(["ok"] * 5)
@@ -70,7 +70,9 @@ class ProcessingTests(unittest.TestCase):
         self.assertEqual(remaining.calls, list(reversed(self.links[:2])))
 
     def test_incomplete_newest_five_cohort_blocks_older_links(self):
-        save_successes(self.state, {self.links[-1]: 5})
+        successes = {link: 1 for link in self.links}
+        successes[self.links[-1]] = 5
+        save_successes(self.state, successes)
         sender = FakeSender(["ok"] * 5)
         self.assertEqual(run_browser_send(sender, self.state), 0)
         self.assertEqual(sender.calls, list(reversed(self.links[-5:-1])))
@@ -89,6 +91,7 @@ class ProcessingTests(unittest.TestCase):
         run_browser_send(FakeSender(["fail"] * 5), self.state)
         self.assertEqual(load_successes(self.state), {})
         self.assertEqual(load_failures(self.state)[self.links[-1]], 1)
+        run_browser_send(FakeSender(["fail"] * 5), self.state)
         run_browser_send(FakeSender(["fail"] * 5), self.state)
         run_browser_send(FakeSender(["fail"] * 5), self.state)
         self.assertEqual(load_failures(self.state)[self.links[-1]], 3)

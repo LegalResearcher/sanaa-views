@@ -136,6 +136,15 @@ def pending_links(attempts, successes=None, state_dir=STATE_DIR, priority_links=
         if is_after_start_link(link) and link not in unique_links:
             unique_links.append(link)
 
+    untried = [
+        link for link in unique_links
+        if (successes.get(link, 0) == 0
+            and attempts.get(link, 0) == 0
+            and can_process(link, state_dir, successes, attempts))
+    ]
+    if untried:
+        return untried
+
     # ثبّت مجموعات من خمسة روابط حتى لا ينتقل النظام إلى رابط أقدم
     # لمجرد أن رابطاً داخل المجموعة اكتمل قبل بقية روابطها.
     for start in range(0, len(unique_links), MAX_TRIES_PER_RUN):
