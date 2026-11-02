@@ -121,13 +121,32 @@ def pending_links(attempts, successes=None, state_dir=STATE_DIR, priority_links=
     priority_set = set(priority)
     ordered_links = [link for link in priority if link in queued]
     ordered_links.extend(link for link in reversed(links) if link not in priority_set)
-    result = []
+
+    if priority_links:
+        result = []
+        for link in ordered_links:
+            if (is_after_start_link(link)
+                    and can_process(link, state_dir, successes, attempts)
+                    and link not in result):
+                result.append(link)
+        return result
+
+    unique_links = []
     for link in ordered_links:
-        if not is_after_start_link(link) or not can_process(link, state_dir, successes, attempts):
-            continue
-        if link not in result:
-            result.append(link)
-    return result
+        if is_after_start_link(link) and link not in unique_links:
+            unique_links.append(link)
+
+    # ثبّت مجموعات من خمسة روابط حتى لا ينتقل النظام إلى رابط أقدم
+    # لمجرد أن رابطاً داخل المجموعة اكتمل قبل بقية روابطها.
+    for start in range(0, len(unique_links), MAX_TRIES_PER_RUN):
+        cohort = unique_links[start:start + MAX_TRIES_PER_RUN]
+        eligible = [
+            link for link in cohort
+            if can_process(link, state_dir, successes, attempts)
+        ]
+        if eligible:
+            return eligible
+    return []
 
 
 def run_browser_send(sender, state_dir=STATE_DIR, priority_links=None):

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import main
 from main import is_after_start_link, run_browser_send
-from processing_state import load_failures, load_successes
+from processing_state import load_failures, load_successes, save_successes
 from retry_link import process_manual_retry
 
 
@@ -68,6 +68,13 @@ class ProcessingTests(unittest.TestCase):
         remaining = FakeSender(["ok"] * 5)
         run_browser_send(remaining, self.state)
         self.assertEqual(remaining.calls, list(reversed(self.links[:2])))
+
+    def test_incomplete_newest_five_cohort_blocks_older_links(self):
+        save_successes(self.state, {self.links[-1]: 5})
+        sender = FakeSender(["ok"] * 5)
+        self.assertEqual(run_browser_send(sender, self.state), 0)
+        self.assertEqual(sender.calls, list(reversed(self.links[-5:-1])))
+        self.assertNotIn(self.links[1], sender.calls)
 
     def test_new_links_are_processed_before_queue_newest_to_oldest(self):
         fresh_links = self.links[-3:]
